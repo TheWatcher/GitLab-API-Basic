@@ -11,7 +11,18 @@ our $VERSION = '0.1.0';
 # ============================================================================
 #  Constructor
 
-
+## @cmethod $ new(%args)
+# Create a new GitLab::API::Basic object to perform GitLab API operations through.
+# Supported arguments are:
+#
+# - `url`: required base URL of the GitLab installation, without the /api/v3/.
+# - `token`: required private token of the user to issue API queries as. Some operations
+#   will only work or make much sense if this is an administator token.
+# - `sudo`: optional username of the user to perform operations as. This can be set
+#   at any time using the sudo() function.
+#
+# @param args A hash of arguments to initialise the object with.
+# @return A new GitLab::API::Basic object. This will croak if creation fails.
 sub new {
     my $invocant = shift;
     my $class    = ref($invocant) || $invocant;
@@ -40,6 +51,7 @@ sub new {
     return $self;
 }
 
+
 # ============================================================================
 #  Common interface
 
@@ -60,18 +72,25 @@ sub sudo {
 }
 
 
-## @method get_project_id($namespace, $project)
-# Given a user and a project name, this will attempt to determine the ID
-# of the project it corresponds do. Note that this can only effectively be
-# called by an admin, unless the username specified matches the user the
-# token belongs to.
-#
-# @param user The username of the user who
-
-
-
 ## @method $ call($operation, $method, $parameters)
+# Call a GitLab API operation. This performs a call of the specified GitLab API
+# operation on the GitLab instance identified by the `url` passed to the
+# GitLab::API::Basic constructor. This will attempt to validate the supplied
+# parameters against the required and optional parameters for the operation,
+# based on the method specified. Key/value pairs in the parameters hash that
+# are not known required or optional parameters are ignored.
 #
+# @param operation  The GitLab API operation to perform. This should include the
+#                   leading /, eg: `/projects/:id`
+# @param method     The method to use when issuing the operation. Note that, as
+#                   with other REST services, one operation can do different
+#                   things depending on the method selected. Should be one of
+#                   "get", "post", "delete", or "put".
+# @param parameters A reference to a hash of key/value pairs containing the
+#                   parameters to send with the operation request.
+# @return A reference to a hash containing the decoded JSON data returned from
+#         the server on success, undef on error. On error, call errstr() to get
+#         a string describing the problem.
 sub call {
     my $self       = shift;
     my $operation  = lc(shift);
@@ -93,7 +112,7 @@ sub call {
 
     # First handle the required parameters, complain if a required param is missing
     foreach my $param (keys %{$opdesc -> {"params"} -> {"required"}}) {
-        return $self -> self_error("$operation called without required parameter '$param'")
+        return $self -> self_error("$operation called without required parameter '$param': ".$opdesc -> {"params"} -> {"required"} -> {$param})
             unless($parameters -> {$param});
 
         $useparams -> {$param} = $parameters -> {$param};
