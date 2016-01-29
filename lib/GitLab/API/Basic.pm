@@ -340,6 +340,11 @@ sub _set_api {
         "/groups" => {
             "GET" => {
                 "title" => "List project groups",
+                "params" => {
+                    "optional" => {
+                        "search" => "The string to match in the name or path",
+                    }
+                },
             },
             "POST" => {
                 "params" => {
@@ -424,16 +429,6 @@ sub _set_api {
                 "title" => "Transfer project to group",
             }
         },
-        "/groups?search=foobar" => {
-            "GET" => {
-                "params" => {
-                    "required" => {
-                        "search" => "The string to match in the name or path",
-                    }
-                },
-                "title" => "Search for group",
-            }
-        },
         "/hooks" => {
             "GET" => {
                 "title" => "List system hooks",
@@ -491,16 +486,11 @@ sub _set_api {
         "/namespaces" => {
             "GET" => {
                 "title" => "List namespaces",
-            }
-        },
-        "/namespaces?search=foobar" => {
-            "GET" => {
                 "params" => {
-                    "required" => {
+                    "optional" => {
                         "search" => "The string to search for.",
                     }
                 },
-                "title" => "Search for namespace",
             }
         },
         "/projects" => {
