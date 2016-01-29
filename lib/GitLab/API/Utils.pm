@@ -434,7 +434,7 @@ sub set_users {
     # or have their access levels fixed
     foreach my $userid (keys(%{$users})) {
         if($curhash -> {$userid}) {
-            $self -> set_user_access(projectid, $userid, $users -> {$userid})
+            $self -> set_user_access($projectid, $userid, $users -> {$userid})
                 or return undef;
         } else {
             $self -> add_users($projectid, $userid, $users -> {$userid})
