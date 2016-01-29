@@ -2237,6 +2237,11 @@ sub _set_api {
             }
         },
     };
+
+    $self -> {"access_levels"} = { "master"    => 40,
+                                   "developer" => 30,
+                                   "reporter"  => 20,
+                                   "guest"     => 10 };
 }
 
 1;
