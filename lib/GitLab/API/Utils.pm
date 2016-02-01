@@ -286,6 +286,29 @@ sub rename_project {
 # ============================================================================
 #  User control
 
+## @method $ lookup_users($emails)
+# Convert the specified list of user emails to GitLab internal user IDs.
+# If an email address can not be converted to an ID, the corresponding entry
+# in the returned array will be set to undef.
+#
+# @param emails A reference to an array of email addresses to resolve.
+# @return A reference to an array of converted user IDs.
+sub lookup_users {
+    my $self   = shift;
+    my $emails = shift;
+
+    my $userids;
+    foreach my $email (@{$emails}) {
+        my $res = $self -> {"api"} -> call("/users", "GET", { search => $email });
+
+        push(@{$userids}, $res -> [0] -> {"id"})
+            if($res && scalar(@{$res}));
+    }
+
+    return $userids;
+}
+
+
 ## @method $ add_users($projectid, $userids, $level)
 # Add users to the specified project at the given level. Add one or more users to
 # the project at the specifed level, where all the users are added at the same
