@@ -1,0 +1,7 @@
+Changes
+lib/GitLab/API/Basic.pm
+lib/GitLab/API/Utils.pm
+Makefile.PL
+MANIFEST			This list of files
+README.md
+t/00-load.t
