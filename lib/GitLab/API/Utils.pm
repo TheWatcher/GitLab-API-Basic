@@ -120,7 +120,7 @@ sub _clone_milestones {
     my $destid   = shift;
 
     my $milestones = $self -> {"api"} -> call("/projects/:id/milestones", "GET", { id => $sourceid });
-    return $self -> self_error("Label lookup failed: ".$self -> {"api"} -> errstr())
+    return $self -> self_error("Milestone lookup failed: ".$self -> {"api"} -> errstr())
         unless($milestones);
 
     my $mapping = {};
