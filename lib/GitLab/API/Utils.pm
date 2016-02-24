@@ -227,6 +227,197 @@ sub deep_fork {
 
 
 # ============================================================================
+#  Sync code
+
+## @method $ sync_labels($sourceid, $destid)
+# Copy labels defined in the source project but not in the destination across
+# to the destination. This will not modify the colours of labels defined in
+# the destination, even if the source labels have different colours.
+#
+# @param sourceid The ID of the project to copy labels from.
+# @param destid   The ID of the project to copy the labels to.
+# @return True on success, undef on error.
+sub sync_labels {
+    my $self     = shift;
+    my $sourceid = shift;
+    my $destid   = shift;
+
+    $self -> clear_error();
+
+    # Fetch the list of labels defined in both the source and destination
+    my $srclabels = $self -> {"api"} -> call("/projects/:id/labels", "GET", { id => $sourceid });
+    return $self -> self_error("Source label lookup failed: ".$self -> {"api"} -> errstr())
+        unless($srclabels);
+
+    my $destlabels = $self -> {"api"} -> call("/projects/:id/labels", "GET", { id => $destid });
+    return $self -> self_error("Destination label lookup failed: ".$self -> {"api"} -> errstr())
+        unless($destlabels);
+
+    # convert the destination label list to a hash for faster lookup
+    my $destset = {};
+    foreach my $label (@{$destlabels}) {
+        $destset -> {$label -> {"name"}} = $label -> {"color"};
+    }
+
+    # now find labels in the source that are not in the destination.
+    my @labels = ();
+    foreach my $label (@{$srclabels}) {
+        push(@labels, $label)
+            unless($destset -> {$label -> {"name"}});
+    }
+
+    # Create any labels that are missing in the destination.
+    foreach my $label (@labels) {
+        my $res = $self -> {"api"} -> call("/projects/:id/labels", "POST", { id    => $destid,
+                                                                             name  => $label -> {"name"},
+                                                                             color => $label -> {"color"}
+                                           });
+        return $self -> self_error("Label creation failed: ".$self -> {"api"} -> errstr())
+            unless($res);
+    }
+
+    return 1;
+}
+
+
+## @method $ sync_milestones($sourceid, $destid)
+# Copy the milestones defined in the source project but not in the destination
+# into the destination project.
+#
+# @note The project IDs specified must be GitLab internal numeric IDs, *not* the
+#       NAMESPACE/PROJECT_NAME format GitLab claims to support but doesn't really.
+# @param sourceid The ID of the project to copy the milestones from.
+# @param destid   The ID of the project to copy the milestones into.
+# @return A reference to a hash that maps IDs of milestones in the source
+#         project to the IDs of milestones in the destination, undef on error.
+sub sync_milestones {
+    my $self     = shift;
+    my $sourceid = shift;
+    my $destid   = shift;
+
+    $self -> clear_error();
+
+    # Fetch the milestones defined in the source and dest
+    my $srcms = $self -> {"api"} -> call("/projects/:id/milestones", "GET", { id => $sourceid });
+    return $self -> self_error("Source milestone lookup failed: ".$self -> {"api"} -> errstr())
+        unless($srcms);
+
+    my $destms = $self -> {"api"} -> call("/projects/:id/milestones", "GET", { id => $destid });
+    return $self -> self_error("Dest milestone failed: ".$self -> {"api"} -> errstr())
+        unless($destms);
+
+    # build a hash of the destination milestone list for lookup speed
+    my $destset = {};
+    foreach my $milestone (@{$destms}) {
+        $destset -> {$milestone -> {"title"}} = $milestone;
+    }
+
+    # Work out which milestones don't exist in the destination
+    my @milestones = ();
+    my $mapping = {};
+    foreach my $milestone (@{$srcms}) {
+        # If the milestone is set on the destination, record the ID mapping.
+        if($destset -> {$milestone -> {"title"}}) {
+            $mapping -> {$milestone -> {"id"}} = $destset -> {$milestone -> {"title"}} -> {"id"};
+
+        # If the milestone isn't on the destination, record the details
+        } else {
+            push(@milestones, $milestone);
+        }
+    }
+
+    # Now add the missing milestones, recording the IDs.
+    foreach my $milestone (@milestones) {
+        my $res = $self -> {"api"} -> call("/projects/:id/milestones", "POST", { id          => $destid,
+                                                                                 title       => $milestone -> {"title"},
+                                                                                 description => $milestone -> {"description"},
+                                                                                 due_date    => $milestone -> {"due_date"}
+                               });
+        return $self -> self_error("Milestone creation failed: ".$self -> {"api"} -> errstr())
+            unless($res);
+
+        $mapping -> {$milestone -> {"id"}} = $res -> {"id"};
+    }
+
+    return $mapping;
+}
+
+
+## @method $ sync_issues($sourceid, $destid)
+# Copy any issues defined in the source project that are not in the destination
+# into the destination project. This will sync the labels and milestones before
+# syncing the issues to ensure that the issue dependencies are in place.
+#
+# @note The project IDs specified must be GitLab internal numeric IDs, *not* the
+#       NAMESPACE/PROJECT_NAME format GitLab claims to support but doesn't really.
+# @param sourceid   The ID of the project to copy the issues from.
+# @param destid     The ID of the project to copy the issues to.
+# @return true on success, undef on error.
+sub sync_issues {
+    my $self       = shift;
+    my $sourceid   = shift;
+    my $destid     = shift;
+
+    $self -> clear_error();
+
+    # First sync the labels and milestones to ensure they are in place.
+    $self -> sync_labels($sourceid, $destid)
+        or return undef;
+
+    my $milestones = $self -> sync_milestones($sourceid, $destid)
+        or return undef;
+
+    # Pull the list of issues on the source
+    my $srcissues = $self -> {"api"} -> call("/projects/:id/issues", "GET" , { id    => $sourceid,
+                                                                               state => "opened" });
+    return $self -> self_error("Source issue lookup failed: ".$self -> {"api"} -> errstr())
+        unless($srcissues);
+
+    # And on the destination. Note that the state filter is removed here, as we
+    # don't want to copy in issues that were previously copied and then closed
+    my $destissues = $self -> {"api"} -> call("/projects/:id/issues", "GET" , { id => $destid });
+    return $self -> self_error("Dest issue lookup failed: ".$self -> {"api"} -> errstr())
+        unless($destissues);
+
+    # build a hash of the destination milestone list for lookup speed
+    my $destset = {};
+    foreach my $issue (@{$destissues}) {
+        $destset -> {$issue -> {"title"}} = $issue;
+    }
+
+    # Work out which issues are not set in the destination
+    my @issues = ();
+    foreach my $issue (@{$srcissues}) {
+        push(@issues, $issue)
+            unless($destset -> {$issue -> {"title"}});
+    }
+
+    # And set the issues in the destination
+    foreach my $issue (@issues) {
+        my $newdata = { id          => $destid,
+                        title       => $issue -> {"title"},
+                        description => $issue -> {"description"} };
+
+        $newdata -> {"labels"} = join(",", @{$issue -> {"labels"}})
+            if($issue -> {"labels"} && scalar(@{$issue -> {"labels"}}));
+
+        # If there's a milestone, set it on the new issue with a remapped ID
+        $newdata -> {"milestone_id"} = $milestones -> {$issue -> {"milestone"} -> {"id"}}
+            if($issue -> {"milestone"} && $issue -> {"milestone"} -> {"id"} && $milestones -> {$issue -> {"milestone"} -> {"id"}});
+
+        my $res = $self -> {"api"} -> call("/projects/:id/issues", "POST", $newdata);
+        return $self -> self_error("Issue creation failed: ".$self -> {"api"} -> errstr())
+            unless($res);
+
+        $self -> _clone_notes($sourceid, $issue -> {"id"}, $destid, $res -> {"id"})
+            or return undef;
+    }
+
+    return 1;
+}
+
+
+# ============================================================================
 #  Convenience features
 
 ## @method $ move_project($projid, $groupname)
