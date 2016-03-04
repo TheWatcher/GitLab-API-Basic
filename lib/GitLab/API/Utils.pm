@@ -21,10 +21,11 @@ sub new {
     my $invocant = shift;
     my $class    = ref($invocant) || $invocant;
     my $self     = {
-        api   => undef,
-        url   => undef,
-        token => undef,
-        sudo  => undef,
+        api      => undef,
+        url      => undef,
+        token    => undef,
+        sudo     => undef,
+        autosudo => 0,
         @_,
     };
 
@@ -41,37 +42,40 @@ sub new {
 # ============================================================================
 #  Deep forking facilities
 
-## @method private $ _clone_labels($sourceid, $destid)
-# Copy the labels defined in the source project into the destination project.
+## @method $ deep_fork($sourceid, $set_milestones)
+# Perform a deep fork of a project. This creates a fork of a project, duplicating the
+# issues, labels, comments, and milestones to the new fork. The project will be forked
+# into the namespace of the current user (or sudo-ed user).
 #
-# @note The project IDs specified must be GitLab internal numeric IDs, *not* the
+# @note The project ID specified must be a GitLab internal numeric ID, *not* the
 #       NAMESPACE/PROJECT_NAME format GitLab claims to support but doesn't really.
-# @param sourceid The ID of the project to copy the labels from.
-# @param destid   The ID of the project to copy the labels into.
-# @return true on success, undef on error.
-sub _clone_labels {
+# @param sourceid       The ID of the project to fork.
+# @param do_sync        If true, labels, issues, milestones and comments are copied.
+#                       Note that if autosudo is set, users who created the issues
+#                       and comments must have access to the fork.
+# @return The ID of the new project on success, undef on error.
+sub deep_fork {
     my $self     = shift;
     my $sourceid = shift;
-    my $destid   = shift;
+    my $do_sync  = shift;
 
-    $self -> clear_error();
+    my $res = $self -> {"api"} -> call("/projects/:id", "GET", { id => $sourceid });
+    return $self -> self_error("Project lookup failed: ".$self -> {"api"} -> errstr())
+        if(!$res);
 
-    my $labels = $self -> {"api"} -> call("/projects/:id/labels", "GET", { id => $sourceid });
-    return $self -> self_error("Label lookup failed: ".$self -> {"api"} -> errstr())
-        unless($labels);
+    my $fork = $self -> {"api"} -> call("/projects/fork/:id", "POST", { id => $sourceid });
+    return $self -> self_error("Project fork failed: ".$self -> {"api"} -> errstr())
+        if(!$fork);
 
-    foreach my $label (@{$labels}) {
-        my $res = $self -> {"api"} -> call("/projects/:id/labels", "POST", { id    => $destid,
-                                                                             name  => $label -> {"name"},
-                                                                             color => $label -> {"color"}
-                                           });
-        return $self -> self_error("Label creation failed: ".$self -> {"api"} -> errstr())
-            unless($res);
-    }
+    $self -> sync_issues($sourceid, $fork -> {"id"}) or return undef
+        if($do_sync);
 
-    return 1;
+    return $fork -> {"id"};
 }
 
+
+# ============================================================================
+#  Sync code
 
 ## @method private $ _clone_notes($sourceid, $fromissue, $destid, $toissue)
 # Copy the notes on the given issue in the source project into an issue in
@@ -94,9 +98,15 @@ sub _clone_notes {
     my $notes = $self -> {"api"} -> call("/projects/:id/issues/:issue_id/notes", "GET", { id       => $sourceid,
                                                                                           issue_id => $fromissue});
     foreach my $note (@{$notes}) {
+        $self -> {"api"} -> sudo($note -> {'author'} -> {'username'})
+            if($self -> {"autosudo"});
+
         my $res = $self -> {"api"} -> call("/projects/:id/issues/:issue_id/notes", "POST", { id       => $destid,
                                                                                              issue_id => $toissue,
                                                                                              body     => $note -> {"body"} });
+        $self -> {"api"} -> sudo($self -> {"sudo"})
+            if($self -> {"autosudo"});
+
         return $self -> self_error("Note creation failed: ".$self -> {"api"} -> errstr())
             unless($res);
     }
@@ -104,130 +114,6 @@ sub _clone_notes {
     return 1;
 }
 
-
-## @method private $ _clone_milestones($sourceid, $destid)
-# Copy the milestones defined in the source project into the destination project.
-#
-# @note The project IDs specified must be GitLab internal numeric IDs, *not* the
-#       NAMESPACE/PROJECT_NAME format GitLab claims to support but doesn't really.
-# @param sourceid The ID of the project to copy the milestones from.
-# @param destid   The ID of the project to copy the milestones into.
-# @return A reference to a hash that maps IDs of milestones in the source
-#         project to the IDs of milestones in the destination, undef on error.
-sub _clone_milestones {
-    my $self     = shift;
-    my $sourceid = shift;
-    my $destid   = shift;
-
-    my $milestones = $self -> {"api"} -> call("/projects/:id/milestones", "GET", { id => $sourceid });
-    return $self -> self_error("Milestone lookup failed: ".$self -> {"api"} -> errstr())
-        unless($milestones);
-
-    my $mapping = {};
-    foreach my $milestone (@{$milestones}) {
-        my $res = $self -> {"api"} -> call("/projects/:id/milestones", "POST", { id          => $destid,
-                                                                                 title       => $milestone -> {"title"},
-                                                                                 description => $milestone -> {"description"},
-                                                                                 due_date    => $milestone -> {"due_date"}
-                               });
-        return $self -> self_error("Milestone creation failed: ".$self -> {"api"} -> errstr())
-            unless($res);
-
-        $mapping -> {$milestone -> {"id"}} = $res -> {"id"};
-    }
-
-    return $mapping;
-}
-
-
-## @method private $ _clone_issues($sourceid, $destid, $milestones)
-# Copy the issues defined in the source project into the destination project.
-#
-# @note The project IDs specified must be GitLab internal numeric IDs, *not* the
-#       NAMESPACE/PROJECT_NAME format GitLab claims to support but doesn't really.
-# @param sourceid   The ID of the project to copy the issues from.
-# @param destid     The ID of the project to copy the issues into.
-# @param milestones A reference to a hash that maps IDs of milestones in the source
-#                   project to the IDs of milestones in the destination. If not
-#                   specified, milestones are note set on the destination issues.
-# @return true on success, undef on error.
-sub _clone_issues {
-    my $self       = shift;
-    my $sourceid   = shift;
-    my $destid     = shift;
-    my $milestones = shift;
-
-    # Pull the list of issues on the source
-    my $issues = $self -> {"api"} -> call("/projects/:id/issues", "GET" , { id    => $sourceid,
-                                                                            state => "opened" });
-    return $self -> self_error("Issue lookup failed: ".$self -> {"api"} -> errstr())
-        unless($issues);
-
-    # And set the issues in the destination
-    foreach my $issue (@{$issues}) {
-        my $newdata = { id          => $destid,
-                        title       => $issue -> {"title"},
-                        description => $issue -> {"description"} };
-
-        $newdata -> {"labels"} = join(",", @{$issue -> {"labels"}})
-            if($issue -> {"labels"} && scalar(@{$issue -> {"labels"}}));
-
-        # If there's a milestone, set it on the new issue with a remapped ID
-        $newdata -> {"milestone_id"} = $milestones -> {$issue -> {"milestone"} -> {"id"}}
-            if($issue -> {"milestone"} && $issue -> {"milestone"} -> {"id"} && $milestones -> {$issue -> {"milestone"} -> {"id"}});
-
-        my $res = $self -> {"api"} -> call("/projects/:id/issues", "POST", $newdata);
-        return $self -> self_error("Issue creation failed: ".$self -> {"api"} -> errstr())
-            unless($res);
-
-        $self -> _clone_notes($sourceid, $issue -> {"id"}, $destid, $res -> {"id"})
-            or return undef;
-    }
-
-    return 1;
-}
-
-
-## @method $ deep_fork($sourceid, $set_milestones)
-# Perform a deep fork of a project. This creates a fork of a project, duplicating the
-# issues, labels, comments, and milestones to the new fork. The project will be forked
-# into the namespace of the current user (or sudo-ed user).
-#
-# @note The project ID specified must be a GitLab internal numeric ID, *not* the
-#       NAMESPACE/PROJECT_NAME format GitLab claims to support but doesn't really.
-# @param sourceid       The ID of the project to fork.
-# @param set_milestones If true, and issues in the source project have milestones set,
-#                       set those milestones in the issues in the fork. If not set,
-#                       this defaults to true.
-# @return The ID of the new project on success, undef on error.
-sub deep_fork {
-    my $self           = shift;
-    my $sourceid       = shift;
-    my $set_milestones = shift // 1;
-
-    my $res = $self -> {"api"} -> call("/projects/:id", "GET", { id => $sourceid });
-    return $self -> self_error("Project lookup failed: ".$self -> {"api"} -> errstr())
-        if(!$res);
-
-    my $fork = $self -> {"api"} -> call("/projects/fork/:id", "POST", { id => $sourceid });
-    return $self -> self_error("Project fork failed: ".$self -> {"api"} -> errstr())
-        if(!$fork);
-
-    $self -> _clone_labels($sourceid, $fork -> {"id"})
-        or return undef;
-
-    my $milestones = $self -> _clone_milestones($sourceid, $fork -> {"id"})
-        or return undef;
-
-    $self -> _clone_issues($sourceid, $fork -> {"id"}, $set_milestones ? $milestones : {} )
-        or return undef;
-
-    return $fork -> {"id"};
-}
-
-
-# ============================================================================
-#  Sync code
 
 ## @method $ sync_labels($sourceid, $destid)
 # Copy labels defined in the source project but not in the destination across
@@ -266,7 +152,8 @@ sub sync_labels {
             unless($destset -> {$label -> {"name"}});
     }
 
-    # Create any labels that are missing in the destination.
+    # Create any labels that are missing in the destination. There's no owner info
+    # for labels, so this can sync without sudo
     foreach my $label (@labels) {
         my $res = $self -> {"api"} -> call("/projects/:id/labels", "POST", { id    => $destid,
                                                                              name  => $label -> {"name"},
@@ -326,7 +213,8 @@ sub sync_milestones {
         }
     }
 
-    # Now add the missing milestones, recording the IDs.
+    # Now add the missing milestones, recording the IDs. As with labels, milestones have
+    # no user information attached, so they copy without sudo
     foreach my $milestone (@milestones) {
         my $res = $self -> {"api"} -> call("/projects/:id/milestones", "POST", { id          => $destid,
                                                                                  title       => $milestone -> {"title"},
@@ -405,9 +293,17 @@ sub sync_issues {
         $newdata -> {"milestone_id"} = $milestones -> {$issue -> {"milestone"} -> {"id"}}
             if($issue -> {"milestone"} && $issue -> {"milestone"} -> {"id"} && $milestones -> {$issue -> {"milestone"} -> {"id"}});
 
+        # Switch users if automatic sudo is enabled
+        $self -> {"api"} -> sudo($issue -> {'author'} -> {'username'})
+            if($self -> {"autosudo"});
+
         my $res = $self -> {"api"} -> call("/projects/:id/issues", "POST", $newdata);
         return $self -> self_error("Issue creation failed: ".$self -> {"api"} -> errstr())
             unless($res);
+
+        # Restore default sudo for safety
+        $self -> {"api"} -> sudo($self -> {"sudo"})
+            if($self -> {"autosudo"});
 
         $self -> _clone_notes($sourceid, $issue -> {"id"}, $destid, $res -> {"id"})
             or return undef;
