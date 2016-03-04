@@ -1,4 +1,9 @@
 Revision history for GitLab-API-Basic
 
-0.1.0   2016-2-23
+0.1.1   2016-03-04
+        Cleaned up clone/sync code and added support for automatic sudo when
+        copying issue and notes (comments). This option should only be enabled
+        if the source users will have access in the destination.
+
+0.1.0   2016-02-23
         First version, released on an unsuspecting world.
