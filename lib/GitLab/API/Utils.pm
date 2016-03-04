@@ -16,6 +16,12 @@ our $VERSION = '0.1.0';
 # All arguments are passed through to an internally-created GitLab::API::Basic
 # object, unless an api argument is provided.
 #
+# Supported arguments not passed through to any internally created GitLab::API::Basic
+# object are:
+#
+# - `api` (optional) If set, this should be a reference to a GitLab::API::Basic
+#   object to use instead of creating one.
+#
 # @return A new GitLab::API::Utils object
 sub new {
     my $invocant = shift;
@@ -25,7 +31,6 @@ sub new {
         url      => undef,
         token    => undef,
         sudo     => undef,
-        autosudo => 0,
         @_,
     };
 
@@ -42,22 +47,27 @@ sub new {
 # ============================================================================
 #  Deep forking facilities
 
-## @method $ deep_fork($sourceid, $set_milestones)
+## @method $ deep_fork($sourceid, $do_sync, $autosudo)
 # Perform a deep fork of a project. This creates a fork of a project, duplicating the
 # issues, labels, comments, and milestones to the new fork. The project will be forked
 # into the namespace of the current user (or sudo-ed user).
 #
 # @note The project ID specified must be a GitLab internal numeric ID, *not* the
 #       NAMESPACE/PROJECT_NAME format GitLab claims to support but doesn't really.
-# @param sourceid       The ID of the project to fork.
-# @param do_sync        If true, labels, issues, milestones and comments are copied.
-#                       Note that if autosudo is set, users who created the issues
-#                       and comments must have access to the fork.
+# @param sourceid The ID of the project to fork.
+# @param do_sync  If true, labels, issues, milestones and comments are copied.
+#                 Note that if autosudo is set, users who created the issues
+#                 and comments must have access to the fork.
+# @param autosudo If set to true, attempt to copy issues and comments as the user
+#                 that created them. If this is enabled, the creator of the
+#                 isses and notes in the source must have access to the destination
+#                 project or the operation will fail.
 # @return The ID of the new project on success, undef on error.
 sub deep_fork {
     my $self     = shift;
     my $sourceid = shift;
     my $do_sync  = shift;
+    my $autosudo = shift;
 
     my $res = $self -> {"api"} -> call("/projects/:id", "GET", { id => $sourceid });
     return $self -> self_error("Project lookup failed: ".$self -> {"api"} -> errstr())
@@ -67,7 +77,7 @@ sub deep_fork {
     return $self -> self_error("Project fork failed: ".$self -> {"api"} -> errstr())
         if(!$fork);
 
-    $self -> sync_issues($sourceid, $fork -> {"id"}) or return undef
+    $self -> sync_issues($sourceid, $fork -> {"id"}, $autosudo) or return undef
         if($do_sync);
 
     return $fork -> {"id"};
@@ -87,6 +97,10 @@ sub deep_fork {
 # @param fromissue The ID of the issue to copy the notes from.
 # @param destid    The ID of the project to copy the notes to.
 # @param toissue   The ID of the issue to copy the notes into.
+# @param autosudo  If set to true, attempt to copy notes as the user that
+#                  created them. If this is enabled, the creator of the
+#                  notes in the source must have access to the destination
+#                  project or the operation will fail.
 # @return true on success, undef on error.
 sub _clone_notes {
     my $self      = shift;
@@ -94,18 +108,19 @@ sub _clone_notes {
     my $fromissue = shift;
     my $destid    = shift;
     my $toissue   = shift;
+    my $autosudo  = shift;
 
     my $notes = $self -> {"api"} -> call("/projects/:id/issues/:issue_id/notes", "GET", { id       => $sourceid,
                                                                                           issue_id => $fromissue});
     foreach my $note (@{$notes}) {
         $self -> {"api"} -> sudo($note -> {'author'} -> {'username'})
-            if($self -> {"autosudo"});
+            if($autosudo);
 
         my $res = $self -> {"api"} -> call("/projects/:id/issues/:issue_id/notes", "POST", { id       => $destid,
                                                                                              issue_id => $toissue,
                                                                                              body     => $note -> {"body"} });
         $self -> {"api"} -> sudo($self -> {"sudo"})
-            if($self -> {"autosudo"});
+            if($autosudo);
 
         return $self -> self_error("Note creation failed: ".$self -> {"api"} -> errstr())
             unless($res);
@@ -231,20 +246,25 @@ sub sync_milestones {
 }
 
 
-## @method $ sync_issues($sourceid, $destid)
+## @method $ sync_issues($sourceid, $destid, $autosudo)
 # Copy any issues defined in the source project that are not in the destination
 # into the destination project. This will sync the labels and milestones before
 # syncing the issues to ensure that the issue dependencies are in place.
 #
 # @note The project IDs specified must be GitLab internal numeric IDs, *not* the
 #       NAMESPACE/PROJECT_NAME format GitLab claims to support but doesn't really.
-# @param sourceid   The ID of the project to copy the issues from.
-# @param destid     The ID of the project to copy the issues to.
+# @param sourceid  The ID of the project to copy the issues from.
+# @param destid    The ID of the project to copy the issues to.
+# @param autosudo  If set to true, attempt to copy notes as the user that
+#                  created them. If this is enabled, the creator of the
+#                  notes in the source must have access to the destination
+#                  project or the operation will fail.
 # @return true on success, undef on error.
 sub sync_issues {
-    my $self       = shift;
-    my $sourceid   = shift;
-    my $destid     = shift;
+    my $self     = shift;
+    my $sourceid = shift;
+    my $destid   = shift;
+    my $autosudo = shift;
 
     $self -> clear_error();
 
@@ -295,7 +315,7 @@ sub sync_issues {
 
         # Switch users if automatic sudo is enabled
         $self -> {"api"} -> sudo($issue -> {'author'} -> {'username'})
-            if($self -> {"autosudo"});
+            if($autosudo);
 
         my $res = $self -> {"api"} -> call("/projects/:id/issues", "POST", $newdata);
         return $self -> self_error("Issue creation failed: ".$self -> {"api"} -> errstr())
@@ -303,7 +323,7 @@ sub sync_issues {
 
         # Restore default sudo for safety
         $self -> {"api"} -> sudo($self -> {"sudo"})
-            if($self -> {"autosudo"});
+            if($autosudo);
 
         $self -> _clone_notes($sourceid, $issue -> {"id"}, $destid, $res -> {"id"})
             or return undef;
