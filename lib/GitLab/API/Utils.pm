@@ -5,8 +5,8 @@ use REST::Client 0.273.1;
 use Carp qw(croak carp);
 use JSON;
 use strict;
-use Data::Dumper;
-our $VERSION = '0.1.0';
+
+our $VERSION = '0.1.1';
 
 # ============================================================================
 #  Constructor

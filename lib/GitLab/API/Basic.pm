@@ -6,7 +6,7 @@ use Carp qw(croak carp);
 use JSON;
 use strict;
 
-our $VERSION = '0.1.0';
+our $VERSION = '0.1.1';
 
 # ============================================================================
 #  Constructor
