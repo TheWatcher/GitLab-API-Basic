@@ -325,7 +325,7 @@ sub sync_issues {
         $self -> {"api"} -> sudo($self -> {"sudo"})
             if($autosudo);
 
-        $self -> _clone_notes($sourceid, $issue -> {"id"}, $destid, $res -> {"id"})
+        $self -> _clone_notes($sourceid, $issue -> {"id"}, $destid, $res -> {"id"}, $autosudo)
             or return undef;
     }
 
