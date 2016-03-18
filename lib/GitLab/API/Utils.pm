@@ -334,6 +334,52 @@ sub sync_issues {
 
 
 # ============================================================================
+#  Export issues/notes
+
+## @method $ fetch_notes($sourceid, $issueid)
+# Fetch the list of notes(comments) made on the specified issue.
+#
+# @param sourceid The ID of the source project.
+# @param issueid  The ID of the issue to get the comments for.
+# @return A reference to an array of comment hashes on success, undef on error.
+sub fetch_notes {
+    my $self     = shift;
+    my $sourceid = shift;
+    my $issueid  = shift;
+
+    my $notes = $self -> {"api"} -> call("/projects/:id/issues/:issue_id/notes", "GET", { id       => $sourceid,
+                                                                                          issue_id => $issueid});
+    return $self -> self_error("Comment lookup failed: ".$self -> {"api"} -> errstr())
+        unless($notes);
+
+    return $notes;
+}
+
+
+## @method $ fetch_issues($sourceid)
+# Fetch the list of issues and their comments from the specified project.
+#
+# @param sourceid The ID of the source project.
+# @return A reference to an array of issues on success, undef on error.
+sub fetch_issues {
+    my $self     = shift;
+    my $sourceid = shift;
+
+    # Pull the list of issues on the source
+    my $issues = $self -> {"api"} -> call("/projects/:id/issues", "GET" , { id => $sourceid });
+    return $self -> self_error("Issue lookup failed: ".$self -> {"api"} -> errstr())
+        unless($issues);
+
+    foreach my $issue (@{$issues}) {
+        $issue -> {"notes"} = $self -> fetch_notes($sourceid, $issue -> {"id"})
+            or return undef;
+    }
+
+    return $issues;
+}
+
+
+# ============================================================================
 #  Convenience features
 
 ## @method $ move_project($projid, $groupname)
