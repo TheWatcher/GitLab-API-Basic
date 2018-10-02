@@ -54,28 +54,45 @@ sub new {
 #
 # @note The project ID specified must be a GitLab internal numeric ID, *not* the
 #       NAMESPACE/PROJECT_NAME format GitLab claims to support but doesn't really.
-# @param sourceid The ID of the project to fork.
-# @param do_sync  If true, labels, issues, milestones and comments are copied.
-#                 Note that if autosudo is set, users who created the issues
-#                 and comments must have access to the fork.
-# @param autosudo If set to true, attempt to copy issues and comments as the user
-#                 that created them. If this is enabled, the creator of the
-#                 isses and notes in the source must have access to the destination
-#                 project or the operation will fail.
+# @param sourceid  The ID of the project to fork.
+# @param namespace The namespace to fork into.
+# @param do_sync   If true, labels, issues, milestones and comments are copied.
+#                  Note that if autosudo is set, users who created the issues
+#                  and comments must have access to the fork.
+# @param autosudo  If set to true, attempt to copy issues and comments as the user
+#                  that created them. If this is enabled, the creator of the
+#                  isses and notes in the source must have access to the destination
+#                  project or the operation will fail.
 # @return The ID of the new project on success, undef on error.
 sub deep_fork {
-    my $self     = shift;
-    my $sourceid = shift;
-    my $do_sync  = shift;
-    my $autosudo = shift;
+    my $self      = shift;
+    my $sourceid  = shift;
+    my $namespace = shift;
+    my $do_sync   = shift;
+    my $autosudo  = shift;
 
     my $res = $self -> {"api"} -> call("/projects/:id", "GET", { id => $sourceid });
     return $self -> self_error("Project lookup failed: ".$self -> {"api"} -> errstr())
         if(!$res);
 
-    my $fork = $self -> {"api"} -> call("/projects/fork/:id", "POST", { id => $sourceid });
+    my $fork = $self -> {"api"} -> call("/projects/:id/fork",
+                                        "POST",
+                                        {
+                                            id => $sourceid,
+                                            namespace => $namespace
+                                        });
     return $self -> self_error("Project fork failed: ".$self -> {"api"} -> errstr())
         if(!$fork);
+
+    # Wait for the fork to happen
+    do {
+       $res = $self -> {"api"} -> call("/projects/:id", "GET", { id => $fork -> {"id"} });
+       return $self -> self_error("Fork lookup failed: ".$self -> {"api"} -> errstr())
+           if(!$res);
+
+       print "Status: ".$res -> {"import_status"}."\n";
+    } while($res -> {"import_status"} ne "finished" &&
+            $res -> {"import_status"} ne "none");
 
     $self -> sync_issues($sourceid, $fork -> {"id"}, $autosudo) or return undef
         if($do_sync);

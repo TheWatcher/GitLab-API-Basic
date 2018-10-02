@@ -15,7 +15,7 @@ our $VERSION = '0.1.1';
 # Create a new GitLab::API::Basic object to perform GitLab API operations through.
 # Supported arguments are:
 #
-# - `url`: required base URL of the GitLab installation, without the /api/v3/.
+# - `url`: required base URL of the GitLab installation.
 # - `token`: required private token of the user to issue API queries as. Some operations
 #   will only work or make much sense if this is an administator token.
 # - `sudo`: optional username of the user to perform operations as. This can be set
@@ -69,6 +69,52 @@ sub sudo {
 
     $self -> {"sudo"} = $user ? $user : undef;
     $self -> _set_headers();
+}
+
+
+sub next_page {
+    my $self = shift;
+
+    return $self -> {"next_link"};
+}
+
+
+## @method $ call_url($method, $url, $body_content, $headers)
+# Execute the specified URL
+#
+# @return A reference to a hash containing the decoded JSON data returned from
+#         the server on success, undef on error. On error, call errstr() to get
+#         a string describing the problem.
+sub call_url {
+    my $self         = shift;
+    my $method       = uc(shift);
+    my $url          = shift;
+    my $body_content = shift;
+    my $headers      = shift;
+
+    $self -> {"next_link"} = "";
+
+    # Note that important headers are set globally, but $headers may
+    # contain incantations indicating the body is x-www-form-urlencoded
+    $self -> {"ua"} -> request($method, $url, $body_content, $headers);
+
+    # did the response succeed?
+    if($self -> {"ua"} -> responseCode =~ /^2\d\d$/) {
+        return { "status" => "success" }
+            if(!$self -> {"ua"} -> responseContent()); # successful response with no body is okay
+
+        my $json = eval { decode_json($self -> {"ua"} -> responseContent()) };
+        return $self -> self_error("Request succeeded, bur JSON parsing failed: $@")
+            if($@);
+
+        $self -> {"next_link"} = $self -> _build_next_link();
+
+        return $json;
+    }
+
+    # For some reason REST::Client doesn't expose the status line from the result.
+    # Thankfully, we can go into the result directly.
+    return $self -> self_error("Request failed. Response was: ".$self -> {"ua"} -> {_res} -> status_line);
 }
 
 
@@ -144,28 +190,10 @@ sub call {
     my ($query_string, $body_content, $headers) = $self -> _build_parameters($method, $useparams);
 
     # build the URL
-    my $url = $self -> _path_join("api/v3", $operation);
+    my $url = $self -> _path_join("api/v4", $operation);
     $url .= "?$query_string" if($query_string);
 
-    # Note that important headers are set globally, but $headers may
-    # contain incantations indicating the body is x-www-form-urlencoded
-    $self -> {"ua"} -> request($method, $url, $body_content, $headers);
-
-    # did the response succeed?
-    if($self -> {"ua"} -> responseCode =~ /^2\d\d$/) {
-        return { "status" => "success" }
-            if(!$self -> {"ua"} -> responseContent()); # successful response with no body is okay
-
-        my $json = eval { decode_json($self -> {"ua"} -> responseContent()) };
-        return $self -> self_error("Request succeeded, bur JSON parsing failed: $@")
-            if($@);
-
-        return $json;
-    }
-
-    # For some reason REST::Client doesn't expose the status line from the result.
-    # Thankfully, we can go into the result directly.
-    return $self -> self_error("Request failed. Response was: ".$self -> {"ua"} -> {_res} -> status_line);
+    return $self -> call_url($method, $url, $body_content, $headers);
 }
 
 
@@ -299,6 +327,17 @@ sub _build_parameters {
     } else {
         return (undef, $outparam, { 'Content-type' => 'application/x-www-form-urlencoded' });
     }
+}
+
+
+sub _build_next_link {
+    my $self = shift;
+
+    my $link = $self -> {"ua"} -> responseHeader("Link");
+    return "" unless($link);
+
+    my ($url) = $link =~ m|<$self->{url}(.*?)>; rel="next"|i;
+    return $url // "";
 }
 
 
@@ -562,6 +601,11 @@ sub _set_api {
         "/projects/:id/events" => {
             "GET" => {
                 "params" => {
+                    "optional" => {
+                        "action" => "Include only events of a particular action type",
+                        "target_type" => "Include only events of a particular target type",
+                        "sort" => "Sort events in asc or desc order by created_at. Default is desc",
+                    },
                     "required" => {
                         "id" => "The ID of a project",
                     }
@@ -577,6 +621,15 @@ sub _set_api {
                     }
                 },
                 "title" => "Delete an existing forked from relationship",
+            },
+            "POST" => {
+                "params" => {
+                    "required" => {
+                        "id" => "The ID of the project to be forked",
+                        "namespace" => "The ID of the path the project will be forked to"
+                    }
+                },
+                "title" => "Fork project",
             }
         },
         "/projects/:id/fork/:forked_from_id" => {
@@ -1946,16 +1999,6 @@ sub _set_api {
                     }
                 },
                 "title" => "List ALL projects",
-            }
-        },
-        "/projects/fork/:id" => {
-            "POST" => {
-                "params" => {
-                    "required" => {
-                        "id" => "The ID of the project to be forked",
-                    }
-                },
-                "title" => "Fork project",
             }
         },
         "/projects/owned" => {
