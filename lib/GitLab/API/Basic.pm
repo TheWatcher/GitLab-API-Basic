@@ -655,10 +655,17 @@ sub _set_api {
             "POST" => {
                 "params" => {
                     "optional" => {
-                        "issues_events" => "Trigger hook on issues events",
-                        "merge_requests_events" => "Trigger hook on merge_requests events",
                         "push_events" => "Trigger hook on push events",
+                        "issues_events" => "Trigger hook on issues events",
+                        "confidential_issues_events" => "Trigger hook on confidential issues events",
+                        "merge_requests_events" => "Trigger hook on merge_requests events",
                         "tag_push_events" => "Trigger hook on push_tag events",
+                        "note_events" => "",
+                        "job_events" => "",
+                        "pipeline_events" => "",
+                        "wiki_page_events" => "",
+                        "enable_ssl_verification" => "",
+                        "token" => "",
                     },
                     "required" => {
                         "id" => "The ID of a project",
@@ -690,10 +697,17 @@ sub _set_api {
             "PUT" => {
                 "params" => {
                     "optional" => {
-                        "issues_events" => "Trigger hook on issues events",
-                        "merge_requests_events" => "Trigger hook on merge_requests events",
                         "push_events" => "Trigger hook on push events",
+                        "issues_events" => "Trigger hook on issues events",
+                        "confidential_issues_events" => "Trigger hook on confidential issues events",
+                        "merge_requests_events" => "Trigger hook on merge_requests events",
                         "tag_push_events" => "Trigger hook on push_tag events",
+                        "note_events" => "",
+                        "job_events" => "",
+                        "pipeline_events" => "",
+                        "wiki_page_events" => "",
+                        "enable_ssl_verification" => "",
+                        "token" => "",
                     },
                     "required" => {
                         "hook_id" => "The ID of a project hook",
