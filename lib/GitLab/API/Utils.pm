@@ -317,8 +317,9 @@ sub sync_issues {
             unless($destset -> {$issue -> {"title"}});
     }
 
-    # And set the issues in the destination
-    foreach my $issue (@issues) {
+    # And set the issues in the destination. Note the reverse here to make
+    # issues be added in the same order as the source
+    foreach my $issue (reverse @issues) {
         my $newdata = { id          => $destid,
                         title       => $issue -> {"title"},
                         description => $issue -> {"description"} };
