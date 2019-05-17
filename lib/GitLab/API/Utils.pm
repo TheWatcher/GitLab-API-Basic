@@ -455,6 +455,60 @@ sub rename_project {
 
 
 # ============================================================================
+#  Group convenience features
+
+## @method $ lookup_group($group)
+# Obtain the data for the group with the specified name. The search performed
+# by this function is case insensitive, but otherwise is exact.
+#
+# @param group The name of the group to search for.
+# @return A reference to a hash containing the group data on success, an empty
+#         hashref if the group can not be found, undef on error.
+sub lookup_group {
+    my $self  = shift;
+    my $group = shift;
+
+    $self -> clear_error();
+
+    my $res = $self -> {"api"} -> call("/groups", "GET", { search => $group });
+    return $self -> self_error("Group lookup failed: ".$self -> {"api"} -> errstr())
+        if(!$res || !scalar(@{$res}));
+
+    # Only return data for exact matches
+    foreach my $result (@{$res}) {
+        next unless(lc($result -> {"full_name"}) eq lc($group));
+
+        return $result;
+    }
+
+    return {}
+}
+
+
+## @method $ add_group($group)
+# Attempt to create a group with the specified name. This will create a group
+# with the specified name and use the same name for the path.
+#
+# @param group The name of the group to create.
+# @return A reference to the  on success, undef on error.
+sub add_group {
+    my $self  = shift;
+    my $group = shift;
+
+    $self -> clear_error();
+
+    my $res = $self -> {"api"} -> call("/groups", "POST",
+                                       { name => $group,
+                                         path => lc($group)
+                                       });
+    return $self -> self_error("Group create failed: ".$self -> {"api"} -> errstr())
+        if(!$res || ref($res) ne "HASH");
+
+    return $res;
+}
+
+
+# ============================================================================
 #  User control
 
 ## @method $ lookup_users($emails)
