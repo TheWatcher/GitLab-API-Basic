@@ -186,7 +186,7 @@ sub sync_labels {
 
     # Create any labels that are missing in the destination. There's no owner info
     # for labels, so this can sync without sudo
-    foreach my $label (@labels) {
+    foreach my $label (reverse @labels) {
         my $res = $self -> {"api"} -> call("/projects/:id/labels", "POST", { id    => $destid,
                                                                              name  => $label -> {"name"},
                                                                              color => $label -> {"color"}
@@ -247,7 +247,7 @@ sub sync_milestones {
 
     # Now add the missing milestones, recording the IDs. As with labels, milestones have
     # no user information attached, so they copy without sudo
-    foreach my $milestone (@milestones) {
+    foreach my $milestone (reverse @milestones) {
         my $res = $self -> {"api"} -> call("/projects/:id/milestones", "POST", { id          => $destid,
                                                                                  title       => $milestone -> {"title"},
                                                                                  description => $milestone -> {"description"},
