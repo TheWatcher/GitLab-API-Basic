@@ -2,6 +2,7 @@ package GitLab::API::Utils;
 
 use GitLab::API::Basic;
 use REST::Client 0.273.1;
+use URI::Escape;
 use Carp qw(croak carp);
 use JSON;
 use strict;
@@ -398,7 +399,30 @@ sub fetch_issues {
 
 
 # ============================================================================
-#  Convenience features
+#  Project convenience features
+
+## @method $ lookup_project($path)
+# Obtain the data for the project at the specified path. The provided path will
+# be URI encoded for you before being passed to the API.
+#
+# @param The path to the project, of the form <namespace>/<projectname>
+# @return A reference to a hash contianing the project data on success, undef
+#         on error.
+sub lookup_project {
+    my $self = shift;
+    my $path = shift;
+
+    $self -> clear_error();
+
+    $path = uri_escape($path);
+
+    my $res = $self -> {"api"} -> call("/projects/:id", "GET", { id => $path });
+    return $self -> self_error("Project lookup failed: ".$self -> {"api"} -> errstr())
+        if(!$res || ref($res) ne "HASH");
+
+    return $res;
+}
+
 
 ## @method $ move_project($projid, $groupname)
 # Move the specified project into the group with the specified name.
