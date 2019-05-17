@@ -1237,26 +1237,30 @@ sub _set_api {
                 "title" => "List single branch",
             }
         },
-        "/projects/:id/repository/branches/:branch/protect" => {
-            "PUT" => {
+        "/projects/:id/protected_branches" => {
+            "POST" => {
                 "params" => {
                     "required" => {
-                        "branch" => "The name of the branch.",
+                        "name" => "The name of the branch or wildcard.",
                         "id" => "The ID of a project",
+                    },
+                    "optional" => {
+                        "push_access_level"  => "Access levels allowed to push (defaults: 40, maintainer access level)",
+                        "merge_access_level" => "Access levels allowed to push (defaults: 40, maintainer access level)"
                     }
                 },
-                "title" => "Protect single branch",
+                "title" => "Protects a single repository branch or several project repository branches using a wildcard protected branch.",
             }
         },
-        "/projects/:id/repository/branches/:branch/unprotect" => {
-            "PUT" => {
+        "/projects/:id/protected_branches/:name" => {
+            "DELETE" => {
                 "params" => {
                     "required" => {
-                        "branch" => "The name of the branch.",
+                        "name" => "The name of the branch.",
                         "id" => "The ID of a project",
                     }
                 },
-                "title" => "Unprotect single branch",
+                "title" => "Unprotects the given protected branch or wildcard protected branch.",
             }
         },
         "/projects/:id/repository/commits" => {
