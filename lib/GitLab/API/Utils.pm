@@ -489,18 +489,45 @@ sub rename_project {
 # @return A reference to a hash containing the group data on success, an empty
 #         hashref if the group can not be found, undef on error.
 sub lookup_group {
-    my $self  = shift;
-    my $group = shift;
+    my $self     = shift;
+    my $group    = shift;
+    my $projects = shift;
 
     $self -> clear_error();
 
-    my $res = $self -> {"api"} -> call("/groups", "GET", { search => $group });
+    my $res = $self -> {"api"} -> call("/groups", "GET", { search => $group,
+                                                           statistics => "true"});
     return $self -> self_error("Group lookup failed: ".$self -> {"api"} -> errstr())
         if(!$res || !scalar(@{$res}));
 
     # Only return data for exact matches
     foreach my $result (@{$res}) {
         next unless(lc($result -> {"full_name"}) eq lc($group));
+
+        # if project listing is enabled, do it
+        if($projects) {
+            $res = $self -> {"api"} -> call("/groups/:id/projects", "GET", { id     => $result -> {"id"},
+                                                                             simple => "true"})
+                or return $self -> self_error("Group project lookup failed: ".$self -> {"api"} -> errstr());
+
+            $result -> {"total_projects"} = $self -> {"api"} -> response_total();
+
+            push(@{$result -> {"projects"}}, @{$res});
+            while($self -> {"api"} -> next_page()) {
+                $res = $self -> {"api"} -> call_url("GET", $self -> {"api"} -> next_page())
+                    or return $self -> self_error("Group project lookup failed: ".$self -> {"api"} -> errstr());
+
+                push(@{$result -> {"projects"}}, @{$res});
+            }
+
+        # even without listing, we'll want counts
+        } else {
+             $res = $self -> {"api"} -> call("/groups/:id/projects", "GET", { id     => $result -> {"id"},
+                                                                             simple => "true"})
+                or return $self -> self_error("Group project lookup failed: ".$self -> {"api"} -> errstr());
+
+            $result -> {"total_projects"} = $self -> {"api"} -> response_total();
+        }
 
         return $result;
     }

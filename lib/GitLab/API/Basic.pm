@@ -79,6 +79,13 @@ sub next_page {
 }
 
 
+sub response_total {
+    my $self = shift;
+
+    return $self -> {"total"};
+}
+
+
 ## @method $ call_url($method, $url, $body_content, $headers)
 # Execute the specified URL
 #
@@ -108,6 +115,7 @@ sub call_url {
             if($@);
 
         $self -> {"next_link"} = $self -> _build_next_link();
+        $self -> {"total"}     = $self -> _build_total();
 
         return $json;
     }
@@ -341,6 +349,14 @@ sub _build_next_link {
 }
 
 
+sub _build_total {
+    my $self = shift;
+
+    my $total = $self -> {"ua"} -> responseHeader("X-Total");
+    return $total;
+}
+
+
 ## @method private void _set_api(void)
 # Set up the information about the API. This is needed to allow
 # the call() function to validate and build API calls.
@@ -455,6 +471,31 @@ sub _set_api {
                     }
                 },
                 "title" => "Edit group team member",
+            }
+        },
+        "/groups/:id/projects" => {
+            "GET" => {
+                "params" => {
+                    "required" => {
+                        "id" => "The ID or path of a group",
+                    },
+                    "optional" => {
+                        "archived" => "Limit by archived status",
+                        "visibility" => "Limit by visibility public, internal, or private",
+                        "order_by" => "Return projects ordered by id, name, path, created_at, updated_at, or last_activity_at fields. Default is created_at",
+                        "sort" => "Return projects sorted in asc or desc order. Default is desc",
+                        "search" => "Return list of authorized projects matching the search criteria",
+                        "simple" => "Return only the ID, URL, name, and path of each project",
+                        "owned" => "Limit by projects owned by the current user",
+                        "starred" => "Limit by projects starred by the current user",
+                        "with_issues_enabled" => "Limit by projects with issues feature enabled. Default is false",
+                        "with_merge_requests_enabled" => "Limit by projects with merge requests feature enabled. Default is false",
+                        "with_shared" => "Include projects shared to this group. Default is true",
+                        "include_subgroups" => "Include projects in subgroups of this group. Default is false",
+                        "with_custom_attributes" => "Include custom attributes in response (admins only)"
+                    }
+                },
+                "title" => "Retrieve information about a group's projects",
             }
         },
         "/groups/:id/projects/:project_id" => {
