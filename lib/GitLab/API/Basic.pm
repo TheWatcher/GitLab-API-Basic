@@ -405,6 +405,7 @@ sub _set_api {
                 "params" => {
                     "optional" => {
                         "description" => "The group's description",
+                        "visibility"  => "The group's visibility. Can be private, internal, or public.",
                     },
                     "required" => {
                         "name" => "The name of the group",
@@ -2340,10 +2341,12 @@ sub _set_api {
         },
     };
 
-    $self -> {"access_levels"} = { "master"    => 40,
-                                   "developer" => 30,
-                                   "reporter"  => 20,
-                                   "guest"     => 10 };
+    $self -> {"access_levels"} = { "owner"      => 50,
+                                   "maintainer" => 40,
+                                   "master"     => 40,
+                                   "developer"  => 30,
+                                   "reporter"   => 20,
+                                   "guest"      => 10 };
 }
 
 1;
