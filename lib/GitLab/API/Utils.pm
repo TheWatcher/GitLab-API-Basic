@@ -91,7 +91,6 @@ sub deep_fork {
        return $self -> self_error("Fork lookup failed: ".$self -> {"api"} -> errstr())
            if(!$res);
 
-       print "Status: ".$res -> {"import_status"}."\n";
     } while($res -> {"import_status"} ne "finished" &&
             $res -> {"import_status"} ne "none");
 
@@ -401,6 +400,33 @@ sub fetch_issues {
 # ============================================================================
 #  Project convenience features
 
+## @method $ get_user_projects()
+# Obtain the list of projects the user has access to.
+#
+# @return A reference to an array of hashes hash contianing the project data
+#         on success, undef on error.
+sub get_user_projects {
+    my $self = shift;
+
+    $self -> clear_error();
+
+    my $res = $self -> {"api"} -> call("/projects", "GET", );
+    return $self -> self_error("Project lookup failed: ".$self -> {"api"} -> errstr())
+        if(!$res || ref($res) ne "ARRAY");
+
+    my @results = ();
+    push(@results, @{$res});
+    while($self -> {"api"} -> next_page()) {
+        $res = $self -> {"api"} -> call_url("GET", $self -> {"api"} -> next_page())
+            or return $self -> self_error("Project lookup failed: ".$self -> {"api"} -> errstr());
+
+        push(@results, @{$res});
+    }
+
+    return \@results;
+}
+
+
 ## @method $ lookup_project($path)
 # Obtain the data for the project at the specified path. The provided path will
 # be URI encoded for you before being passed to the API.
@@ -536,21 +562,85 @@ sub lookup_group {
 }
 
 
-## @method $ add_group($group)
+# @method $ get_group_members($groupid)
+# Fetch the list of members for the specified group from gitlab.
+#
+# @param groupid The ID of the group to fetch the members for.
+# @return A reference to an array of group member hashes on success, undef
+#         on error.
+sub get_group_members {
+    my $self    = shift;
+    my $groupid = shift;
+
+    $self -> clear_error();
+
+    my $res = $self -> {"api"} -> call("/groups/:id/members", "GET", { id => $groupid });
+    return $self -> self_error("Group member lookup failed: ".$self -> {"api"} -> errstr())
+        if(!$res);
+
+    my @result = ();
+    push(@result, @{$res});
+    while($self -> {"api"} -> next_page()) {
+        $res = $self -> {"api"} -> call_url("GET", $self -> {"api"} -> next_page())
+            or return $self -> self_error("Group member lookup failed: ".$self -> {"api"} -> errstr());
+
+        push(@result, @{$res});
+    }
+
+    return \@result;
+}
+
+
+# @method $ add_group_member($groupid, $userid, $level)
+# Add a user as a member of the specified group.
+#
+# @param groupid The ID of the group to add the user to.
+# @param userid  The ID of the user to add to the group.
+# @param level   The access level to set for the user, defaults to "developer".
+# @return A reference to a group member hashe on success, undef on error.
+sub add_group_member {
+    my $self    = shift;
+    my $groupid = shift;
+    my $userid  = shift;
+    my $level   = shift // "developer";
+
+    $self -> clear_error();
+
+    # Convert non-numeric levels
+    $level = $self -> {"api"} -> {"access_levels"} -> {$level}
+        unless($level =~ /^\d+$/);
+
+    return $self -> self_error("Illegal access level specified: '$level'")
+        unless($level && $level =~ /^\d+$/);
+
+    my $res = $self -> {"api"} -> call("/groups/:id/members", "POST", { id           => $groupid,
+                                                                        user_id      => $userid,
+                                                                        access_level => $level });
+    return $self -> self_error("Group member addition ($groupid, $userid, $level) failed: ".$self -> {"api"} -> errstr())
+        if(!$res);
+
+    return $res;
+}
+
+
+## @method $ add_group($group, $level)
 # Attempt to create a group with the specified name. This will create a group
 # with the specified name and use the same name for the path.
 #
 # @param group The name of the group to create.
+# @param level The visibility level, can be private, internal, or public
 # @return A reference to the  on success, undef on error.
 sub add_group {
     my $self  = shift;
     my $group = shift;
+    my $level = shift // "private";
 
     $self -> clear_error();
 
     my $res = $self -> {"api"} -> call("/groups", "POST",
                                        { name => $group,
-                                         path => lc($group)
+                                         path => lc($group),
+                                         visibility => $level,
                                        });
     return $self -> self_error("Group create failed: ".$self -> {"api"} -> errstr())
         if(!$res || ref($res) ne "HASH");
