@@ -789,7 +789,7 @@ sub remove_users {
 }
 
 
-## @method $ set_users($projectid, $users)
+## @method $ set_users($projectid, $users, $remove)
 # Modify the users set on the specified project to match the specified users.
 # This will remove any users not present in the specified hashref, and add
 # users who are in the user hashref but not set on the project.
@@ -800,11 +800,15 @@ sub remove_users {
 # @param users     A reference to a hash of users to set on the project. The
 #                  keys should be the user IDs and the value should be the
 #                  access level to add the user at.
+# @param remove    If set to true, remove any users who are not in the
+#                  specified hash of users. If false - the default - users who
+#                  are not in the users hash are unchanged.
 # @return true on success, undef on error.
 sub set_users {
     my $self      = shift;
     my $projectid = shift;
     my $users     = shift;
+    my $remove    = shift;
 
     $self -> clear_error();
 
@@ -831,11 +835,178 @@ sub set_users {
         }
     }
 
-    # Now work out which users need to be removed - are they in the current list
-    # but not in the set hash?
+    if($remove) {
+        # Now work out which users need to be removed - are they in the current list
+        # but not in the set hash?
+        foreach my $user (@{$curlist}) {
+            $self -> remove_users($projectid, $user -> {"id"}) or return undef
+                unless($users -> {$user -> {"id"}});
+        }
+    }
+
+    return 1;
+}
+
+
+## @method $ add_group_users($groupid, $userids, $level)
+# Add users to the specified group at the given level. Add one or more users to
+# the group at the specifed level, where all the users are added at the same
+# level.
+#
+# @param groupid  The ID of the group to add users to.
+# @param userids  A user ID or a reference to an array of user IDs of users to
+#                 add to the group.
+# @param level    The level to add users at, see the access_levels hash in the
+#                 GitLab::API::Basic for supported levels. If not specified,
+#                 users are added at level 30 ('developer').
+# @return true on success, undef on error.
+sub add_group_users {
+    my $self    = shift;
+    my $groupid = shift;
+    my $userids = shift;
+    my $level   = shift // $self -> {"api"} -> {"access_levels"} -> {"developer"};
+
+    # Ensure the userids are in an arrayref.
+    $userids = [ $userids ]
+        if(!ref($userids));
+
+    $self -> clear_error();
+
+    # Add each user to the group, hopefully they aren't there already!
+    foreach my $userid (@{$userids}) {
+        my $res = $self -> {"api"} -> call("/groups/:id/members", "POST", { 'id'           => $groupid,
+                                                                            'user_id'      => $userid,
+                                                                            'access_level' => $level
+                                           });
+
+        return $self -> self_error("Unable to add user $userid to group $groupid: ".$self -> {"api"} -> errstr())
+            unless($res);
+    }
+
+    return 1;
+}
+
+
+## @method $ set_group_user_access($groupid, $userids, $level)
+# Update the access level for the specified user(s) in the given group.
+#
+# @param groupid  The ID of the group to set the access level of the users in.
+# @param userids  A user ID or a reference to an array of user IDs of users to
+#                 set the access level for.
+# @param level    The level to set for the users, see the access_levels hash in the
+#                 GitLab::API::Basic for supported levels. If not specified,
+#                 users set to level 30 ('developer').
+# @return true on success, undef on error.
+sub set_group_user_access {
+    my $self    = shift;
+    my $groupid = shift;
+    my $userids = shift;
+    my $level   = shift // $self -> {"api"} -> {"access_levels"} -> {"developer"};
+
+    # Ensure the userids are in an arrayref.
+    $userids = [ $userids ]
+        if(!ref($userids));
+
+    $self -> clear_error();
+
+    # Update the user's access level
+    foreach my $userid (@{$userids}) {
+        my $res = $self -> {"api"} -> call("/groups/:id/members/:user_id", "PUT", { 'id'           => $groupid,
+                                                                                    'user_id'      => $userid,
+                                                                                    'access_level' => $level
+                                           });
+
+        return $self -> self_error("Unable to set user $userid access on group $groupid: ".$self -> {"api"} -> errstr())
+            unless($res);
+    }
+
+    return 1;
+}
+
+
+## @method $ remove_group_users($groupid, $userids)
+# Remove the specified users from the group.
+#
+# @param groupid The ID of the group to remove the users from.
+# @param userids A user ID or reference to an array of user IDs of users to
+#                remove from the group
+# @return true on success, undef on error.
+sub remove_group_users {
+    my $self    = shift;
+    my $groupid = shift;
+    my $userids = shift;
+
+    # Ensure the userids are in an arrayref.
+    $userids = [ $userids ]
+        if(!ref($userids));
+
+    $self -> clear_error();
+
+    # Remove the users from the group.
+    foreach my $userid (@{$userids}) {
+        my $res = $self -> {"api"} -> call("/groups/:id/members/:user_id", "DELETE", { 'id'      => $groupid,
+                                                                                       'user_id' => $userid
+                                           });
+
+        return $self -> self_error("Unable to remove user $userid from group $groupid: ".$self -> {"api"} -> errstr())
+            unless($res);
+    }
+
+    return 1;
+}
+
+
+## @method $ set_group_users($groupid, $users, $remove)
+# Modify the users set on the specified group to match the specified users.
+# This will remove any users not present in the specified hashref, and add
+# users who are in the user hashref but not set on the group.
+#
+# @param groupid The ID of the group to remove the users from.
+# @param users   A reference to a hash of users to set on the group. The
+#                keys should be the user IDs and the value should be the
+#                access level to add the user at.
+# @param remove  If set to true, remove any users who are not in the
+#                specified hash of users. If false - the default - users who
+#                are not in the users hash are unchanged.
+# @return true on success, undef on error.
+sub set_group_users {
+    my $self    = shift;
+    my $groupid = shift;
+    my $users   = shift;
+    my $remove  = shift;
+
+    $self -> clear_error();
+
+    # Fetch the list of currently set users
+    my $curlist = $self -> {"api"} -> call("/groups/:id/members", "GET", { id => $groupid });
+    return $self -> self_error("Unable to fetch list of user for group $groupid: ".$self -> {"api"} -> errstr())
+        unless($curlist);
+
+    # convert to a hash to make lookup faster.
+    my $curhash = {};
     foreach my $user (@{$curlist}) {
-        $self -> remove_users($projectid, $user -> {"id"}) or return undef
-            unless($users -> {$user -> {"id"}});
+        $curhash -> {$user -> {"id"}} = $user;
+    }
+
+    # Go through the list of userids specified, working out which need to be added
+    # or have their access levels fixed
+    foreach my $userid (keys(%{$users})) {
+        if($curhash -> {$userid}) {
+            $self -> set_group_user_access($groupid, $userid, $users -> {$userid})
+                or return undef;
+        } else {
+            $self -> add_group_users($groupid, $userid, $users -> {$userid})
+                or return undef;
+        }
+    }
+
+    if($remove) {
+        # Now work out which users need to be removed - are they in the current list
+        # but not in the set hash?
+        foreach my $user (@{$curlist}) {
+            $self -> remove_group_users($groupid, $user -> {"id"}) or return undef
+                unless($users -> {$user -> {"id"}});
+        }
     }
 
     return 1;
