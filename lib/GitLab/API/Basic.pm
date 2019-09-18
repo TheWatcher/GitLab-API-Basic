@@ -979,6 +979,19 @@ sub _set_api {
                 "title" => "Add project team member",
             }
         },
+        "/projects/:id/members/all" => {
+            "GET" => {
+                "params" => {
+                    "optional" => {
+                        "query" => "Query string to search for members",
+                    },
+                    "required" => {
+                        "id" => "The ID of a project",
+                    }
+                },
+                "title" => "List project team members",
+            },
+        },
         "/projects/:id/members/:user_id" => {
             "DELETE" => {
                 "params" => {

@@ -809,24 +809,41 @@ sub set_users {
     my $projectid = shift;
     my $users     = shift;
     my $remove    = shift;
+    my $curhash = {};
 
     $self -> clear_error();
 
-    # Fetch the list of currently set users
-    my $curlist = $self -> {"api"} -> call("/projects/:id/members", "GET", { id => $projectid });
-    return $self -> self_error("Unable to fetch list of user for project $projectid: ".$self -> {"api"} -> errstr())
-        unless($curlist);
+    # Look up all users, including the group level ones
+    my $grplist = $self -> {"api"} -> call("/projects/:id/members/all", "GET", { id => $projectid });
+    return $self -> self_error("Unable to fetch list of user for project $projectid and ancestors: ".$self -> {"api"} -> errstr())
+        unless($grplist);
 
-    # convert to a hash to make lookup faster.
-    my $curhash = {};
-    foreach my $user (@{$curlist}) {
+    # Store these users as group level, even though some are project, as
+    # we have no way to tell from the /all endpoint. To address that,
+    # we need to pull in the list for just the project
+    foreach my $user (@{$grplist}) {
+        $user -> {"level"} = "group";
+        $curhash -> {$user -> {"id"}} = $user;
+    }
+
+    # Fetch the list of currently set users on the project
+    my $projlist = $self -> {"api"} -> call("/projects/:id/members", "GET", { id => $projectid });
+    return $self -> self_error("Unable to fetch list of user for project $projectid: ".$self -> {"api"} -> errstr())
+        unless($projlist);
+
+    # Overwrite any users set as 'group' that are actually 'proj'
+    foreach my $user (@{$projlist}) {
+        $user -> {"level"} = "proj";
         $curhash -> {$user -> {"id"}} = $user;
     }
 
     # Go through the list of userids specified, working out which need to be added
     # or have their access levels fixed
     foreach my $userid (keys(%{$users})) {
-        if($curhash -> {$userid}) {
+        # Do not touch group level users
+        next if($curhash -> {$userid} -> {"level"} eq "group");
+
+        if($curhash -> {$userid} -> {"level"} eq "proj") {
             $self -> set_user_access($projectid, $userid, $users -> {$userid})
                 or return undef;
         } else {
@@ -838,9 +855,12 @@ sub set_users {
     if($remove) {
         # Now work out which users need to be removed - are they in the current list
         # but not in the set hash?
-        foreach my $user (@{$curlist}) {
-            $self -> remove_users($projectid, $user -> {"id"}) or return undef
-                unless($users -> {$user -> {"id"}});
+        foreach my $userid (keys(%{$curhash})) {
+            # Skip users are the group level
+            next if($curhash -> {$userid} -> {"level"} eq "group");
+
+            $self -> remove_users($projectid, $userid) or return undef
+                unless($users -> {$userid});
         }
     }
 
