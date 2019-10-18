@@ -998,9 +998,7 @@ sub set_group_users {
     $self -> clear_error();
 
     # Fetch the list of currently set users
-    my $curlist = $self -> {"api"} -> call("/groups/:id/members", "GET", { id => $groupid });
-    return $self -> self_error("Unable to fetch list of user for group $groupid: ".$self -> {"api"} -> errstr())
-        unless($curlist);
+    my $curlist = $self -> get_group_members($groupid);
 
     # convert to a hash to make lookup faster.
     my $curhash = {};
