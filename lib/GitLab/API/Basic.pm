@@ -1488,6 +1488,40 @@ sub _set_api {
                 "title" => "Create a new tag",
             }
         },
+        "/projects/:id/repository/tags" => {
+            "GET" => {
+                "params" => {
+                    "required" => {
+                        "id" => "The ID of a project",
+                    }
+                },
+                "title" => "List project repository tags",
+            },
+            "POST" => {
+                "params" => {
+                    "optional" => {
+                        "message" => "Creates annotated tag.",
+                    },
+                    "required" => {
+                        "id" => "The ID of a project",
+                        "ref" => "Create tag using commit SHA, another tag name, or branch name.",
+                        "tag_name" => "The name of a tag",
+                    }
+                },
+                "title" => "Create a new tag",
+            }
+        },
+        "/projects/:id/repository/tags/:tag_name" => {
+            "GET" => {
+                "params" => {
+                    "required" => {
+                        "id" => "The ID of a project",
+                        "tag_name" => "The name of a tag",
+                    }
+                },
+                "title" => "Look up a project repository tag",
+            }
+        },
         "/projects/:id/repository/tree" => {
             "GET" => {
                 "params" => {
