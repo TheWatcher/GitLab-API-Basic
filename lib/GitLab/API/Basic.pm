@@ -707,6 +707,9 @@ sub _set_api {
                         "pipeline_events" => "",
                         "wiki_page_events" => "",
                         "enable_ssl_verification" => "",
+                        'push_events_branch_filter' => '',
+                        'repository_update_events' => "",
+                        'confidential_note_events' => "",
                         "token" => "",
                     },
                     "required" => {
